@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Infiltrazioni Officina</title>
+    <!-- Tag per rendere l'App Installabile (Senza barre browser) -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="mobile-web-app-capable" content="yes">
+    
+    <style>
+        :root { --primary: #2563eb; --success: #22c55e; --danger: #ef4444; --bg: #f8fafc; --text: #1e293b; --shadow: 0 10px 25px rgba(0,0,0,0.15); }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--bg); color: var(--text); padding: 20px; display: flex; flex-direction: column; align-items: center; margin: 0; }
+        #loader { display: none; position: fixed; top: 10px; right: 10px; background: #333; color: white; padding: 8px 15px; border-radius: 20px; font-size: 12px; z-index: 9999; }
+        .stats-container { display: flex; gap: 15px; margin-bottom: 20px; width: 100%; max-width: 1400px; }
+        .stat-card { background: white; padding: 15px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); flex: 1; text-align: center; }
+        #map-outer { background: white; padding: 10px; border-radius: 15px; box-shadow: var(--shadow); margin-bottom: 30px; width: 95%; max-width: 1600px; }
+        #map-container { position: relative; cursor: crosshair; width: 100%; overflow: hidden; }
+        #map-image { display: block; width: 100% !important; height: auto; border-radius: 8px; }
+        .pin { position: absolute; width: 28px; height: 28px; border-radius: 50%; background: rgba(255, 255, 255, 0.6); backdrop-filter: blur(2px); display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px; transform: translate(-50%, -50%); cursor: pointer; z-index: 5; border: 2px solid; }
+        .pin.active { border-color: var(--danger); color: var(--danger); }
+        .pin.resolved { border-color: var(--success); color: var(--success); }
+        .popover { position: absolute; background: white; border-radius: 10px; padding: 15px; box-shadow: 0 15px 35px rgba(0,0,0,0.2); z-index: 1000; display: none; width: 250px; border: 1px solid #e2e8f0; }
+        .table-container { width: 95%; max-width: 1400px; background: white; border-radius: 12px; padding: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; min-width: 600px; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #e2e8f0; }
+        .btn { padding: 8px 15px; border-radius: 6px; border: none; cursor: pointer; font-weight: 500; font-size: 13px; }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-danger { background: #fee2e2; color: var(--danger); }
+        textarea { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 6px; resize: none; font-family: inherit; margin-bottom: 10px; box-sizing: border-box; }
+        @media print { .btn, .no-print, .popover, #loader { display: none !important; } #map-outer { break-after: page; box-shadow: none; border: 1px solid #eee; } }
+    </style>
+</head>
+<body>
+
+    <div id="loader">Sync...</div>
+
+    <div class="header" style="text-align: center; margin-bottom: 20px;">
+        <h1 style="margin: 0;">Report Infiltrazioni Officina</h1>
+        <small>Versione 6.0 - Pulita</small>
+    </div>
+
+    <div class="stats-container">
+        <div class="stat-card"><h4>Totale</h4><p id="stat-total">0</p></div>
+        <div class="stat-card" style="color: var(--danger)"><h4>Attive</h4><p id="stat-active">0</p></div>
+        <div class="stat-card" style="color: var(--success)"><h4>Risolte</h4><p id="stat-resolved">0</p></div>
+    </div>
+
+    <div id="map-outer">
+        <div id="map-container">
+            <img src="https://lh3.googleusercontent.com/d/1eIR9u1TcUldXQEVNcL1Kf2sMMOlA1z4k" id="map-image" alt="Mappa">
+            <div id="pins-overlay"></div>
+            
+            <div id="map-popover" class="popover">
+                <h4 style="margin:0 0 10px 0">Nuova Segnalazione</h4>
+                <textarea id="desc-input" rows="3" placeholder="Descrizione..."></textarea>
+                <div style="display:flex; justify-content: flex-end; gap: 5px;">
+                    <button class="btn" style="background:#eee" onclick="closePopover('map-popover')">X</button>
+                    <button class="btn btn-primary" onclick="savePin()">Salva</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="table-container">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <h3>Registro Interventi</h3>
+            <button class="btn btn-primary no-print" onclick="window.print()">Stampa Report</button>
+        </div>
+        <table>
+            <thead><tr><th>N°</th><th>Data</th><th>Descrizione</th><th>Stato</th><th class="no-print">Azioni</th></tr></thead>
+            <tbody id="infiltrations-list"></tbody>
+        </table>
+    </div>
+
+    <div id="delete-popover" class="popover" style="width: 180px;">
+        <p>Eliminare?</p>
+        <button class="btn btn-primary" style="background:var(--danger)" id="confirm-delete-btn">Sì</button>
+        <button class="btn" onclick="closePopover('delete-popover')">No</button>
+    </div>
+
+    <script>
+        // --- INCOLLA QUI L'URL DEL TUO DEPLOYMENT DI GOOGLE APPS SCRIPT ---
+        const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbz9y_6YPt5XRkAP-Mt8Of90KPa_fPVRN-HkqmUEjqTLkeTIPtt3O0q_veU0r7LxI2o_TQ/exec';
+
+        let points = [];
+        let tempCoords = null;
+
+        async function loadData() {
+            showLoader(true);
+            try {
+                const response = await fetch(WEB_APP_URL + "?getJson=1");
+                points = await response.json();
+                renderUI();
+            } catch (e) { console.error(e); }
+            showLoader(false);
+        }
+
+        async function syncToCloud() {
+            showLoader(true);
+            try {
+                // Usiamo JSONP-like o fetch con no-cors per il salvataggio
+                await fetch(WEB_APP_URL, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    cache: 'no-cache',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'saveAll', data: points })
+                });
+                // Poiché no-cors non restituisce la risposta, ricarichiamo i dati dopo un piccolo delay
+                setTimeout(loadData, 1000);
+            } catch (e) { console.error(e); }
+        }
+
+        function renderUI() {
+            const overlay = document.getElementById('pins-overlay');
+            const list = document.getElementById('infiltrations-list');
+            overlay.innerHTML = ''; list.innerHTML = '';
+            let stats = { active: 0, resolved: 0 };
+
+            points.forEach((p, i) => {
+                const isResolved = p.status === 'resolved';
+                if(isResolved) stats.resolved++; else stats.active++;
+                
+                const pin = document.createElement('div');
+                pin.className = `pin ${p.status}`;
+                pin.style.left = p.x + '%'; pin.style.top = p.y + '%';
+                pin.innerHTML = i + 1;
+                pin.onclick = (e) => { e.stopPropagation(); toggleStatus(p.id); };
+                overlay.appendChild(pin);
+
+                list.innerHTML += `<tr>
+                    <td>${i + 1}</td>
+                    <td>${p.date || '-'}</td>
+                    <td>${p.desc}</td>
+                    <td style="color:${isResolved ? 'var(--success)' : 'var(--danger)'}"><b>${isResolved ? 'RISOLTO' : 'ATTIVA'}</b></td>
+                    <td class="no-print">
+                        <button class="btn btn-primary" onclick="toggleStatus(${p.id})">Stato</button>
+                        <button class="btn btn-danger" onclick="confirmDelete(this, ${p.id})">Elimina</button>
+                    </td>
+                </tr>`;
+            });
+            document.getElementById('stat-total').innerText = points.length;
+            document.getElementById('stat-active').innerText = stats.active;
+            document.getElementById('stat-resolved').innerText = stats.resolved;
+        }
+
+        document.getElementById('map-container').addEventListener('click', (e) => {
+            if(e.target.id !== 'map-image' && e.target.id !== 'pins-overlay') return;
+            const rect = e.currentTarget.getBoundingClientRect();
+            tempCoords = { x: ((e.clientX - rect.left) / rect.width) * 100, y: ((e.clientY - rect.top) / rect.height) * 100 };
+            const pop = document.getElementById('map-popover');
+            pop.style.display = 'block';
+            pop.style.left = (tempCoords.x > 80 ? tempCoords.x - 20 : tempCoords.x) + '%';
+            pop.style.top = tempCoords.y + '%';
+        });
+
+        function savePin() {
+            const desc = document.getElementById('desc-input').value;
+            if(!desc) return;
+            const d = new Date();
+            points.push({ id: Date.now(), date: d.toLocaleDateString('it-IT'), x: tempCoords.x, y: tempCoords.y, desc: desc, status: 'active' });
+            document.getElementById('desc-input').value = '';
+            closePopover('map-popover');
+            renderUI();
+            syncToCloud();
+        }
+
+        function toggleStatus(id) {
+            const idx = points.findIndex(p => p.id == id);
+            points[idx].status = points[idx].status === 'active' ? 'resolved' : 'active';
+            renderUI();
+            syncToCloud();
+        }
+
+        function confirmDelete(btn, id) {
+            const pop = document.getElementById('delete-popover');
+            const rect = btn.getBoundingClientRect();
+            pop.style.display = 'block'; pop.style.position = 'fixed';
+            pop.style.top = (rect.top - 60) + 'px'; pop.style.left = (rect.left - 50) + 'px';
+            document.getElementById('confirm-delete-btn').onclick = () => {
+                points = points.filter(p => p.id != id);
+                closePopover('delete-popover');
+                renderUI();
+                syncToCloud();
+            };
+        }
+
+        function closePopover(id) { document.getElementById(id).style.display = 'none'; }
+        function showLoader(s) { document.getElementById('loader').style.display = s ? 'block' : 'none'; }
+        window.onload = loadData;
+    </script>
+</body>
+</html>
